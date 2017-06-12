@@ -1,20 +1,23 @@
-#include "calculator.hpp"
+#include "calc.hpp"
 #include <algorithm>
-#include <assert.h>
 #include <iostream>
 #include <vector>
 
-// don't change the order
+namespace calc
+{
+
+using it_t = std::string::size_type;
+
 enum class Tok_id
 {
-    mp,
-    div,
-    add,
-    sub,
-    p_left,
-    p_right,
-    err,
-    num
+    mp = 0,
+    div = 1,
+    add = 2,
+    sub = 3,
+    p_left = 4,
+    p_right = 5,
+    num = 6,
+    err = 7
 };
 
 struct Token
@@ -25,19 +28,18 @@ struct Token
     int data;
 };
 
-// sets data only for + - * / operators
+// data is set only for: + - / *
 Token get_token(char c);
 
-// expr must be whitespace free
-// does some processing
-std::vector<Token> get_tokens(const std::string &expr);
+std::vector<Token> get_tokens(std::string expr);
 
-// output token list consist only of numbers and + - * / operators
-std::optional<std::vector<Token>> make_postfix(const std::vector<Token> &tokens);
+std::vector<Token> get_postfix(const std::vector<Token>& tokens);
 
-std::optional<int> postfix_resolve(const std::vector<Token> &tokens);
+std::optional<int> postfix_resolve(const std::vector<Token>& tokens);
 
-void calc_start()
+// I M P L E M E N T A T I O N
+
+void start()
 {
     std::string input;
     for(;;)
@@ -45,7 +47,7 @@ void calc_start()
         std::getline(std::cin, input);
         if(input == "exit")
             return;
-        auto val = calc_execute(input);
+        auto val = execute(input);
         if(val)
             std::cout << *val << std::endl;
         else
@@ -53,32 +55,31 @@ void calc_start()
     }
 }
 
-std::optional<int> calc_execute(std::string input)
+std::optional<int> execute(const std::string& input)
 {
-    input.erase(std::remove(input.begin(), input.end(), ' '), input.end());
     auto tokens = get_tokens(input);
-    auto ptokens = make_postfix(tokens);
-
-    if(!ptokens)
-        return {};
-
-    if(auto val = postfix_resolve(*ptokens))
+    tokens = get_postfix(tokens);
+    if(auto val = postfix_resolve(tokens))
         return *val;
-
     return {};
 }
 
-std::vector<Token> get_tokens(const std::string &expr)
+std::vector<Token> get_tokens(std::string expr)
 {
-    for(auto c: expr)
-        assert(c != ' ');
+    expr.erase(std::remove(expr.begin(), expr.end(), ' '), expr.end());
+
+    // prevent "6()" from passing
+    for(it_t i = 0; i < expr.size() - 1; ++i)
+        if(expr[i] == '(' && expr[i + 1]  == ')')
+            return {};
 
     std::vector<Token> tokens;
     tokens.reserve(expr.size());
-    for(auto i = 0; i < expr.size(); ++i)
+    for(it_t i = 0; i < expr.size(); ++i)
     {
         auto tok = get_token(expr[i]);
         tokens.push_back(tok);
+        // #1 character sequence to single token with id = num conversion
         if(
                 tok.id == Tok_id::num
                 ||
@@ -103,6 +104,15 @@ std::vector<Token> get_tokens(const std::string &expr)
             tokens.back() = {Tok_id::num, std::stoi(std::string(expr, i, end - i))};
             i = end - 1;
         }
+        // #2
+        //      "-("
+        //      "+("
+        //   convertion to (token sequence)
+        //      -1 *
+        //       1 *
+        //   or
+        //      + -1 *
+        //      + 1 *
         else if(
                 (tok.id == Tok_id::add || tok.id == Tok_id::sub)
                 &&
@@ -125,7 +135,7 @@ std::vector<Token> get_tokens(const std::string &expr)
     return tokens;
 }
 
-std::optional<std::vector<Token>> make_postfix(const std::vector<Token> &tokens)
+std::vector<Token> get_postfix(const std::vector<Token>& tokens)
 {
     std::vector<Token> ptokens;
     // operators stack
@@ -173,7 +183,7 @@ std::optional<std::vector<Token>> make_postfix(const std::vector<Token> &tokens)
                     break;
                 ptokens.push_back(op_stack[i]);
             }
-            // missing (
+            // parentheses mismatch
             if(erase_id == 0 && op_stack[0].id != Tok_id::p_left)
                 return {};
 
@@ -191,48 +201,48 @@ std::optional<std::vector<Token>> make_postfix(const std::vector<Token> &tokens)
     return ptokens;
 }
 
-std::optional<int> postfix_resolve(const std::vector<Token> &tokens)
+std::optional<int> postfix_resolve(const std::vector<Token>& tokens)
 {
-    // operands stack
-    std::vector<int> op_stack;
-    op_stack.reserve(tokens.size());
+    // numbers stack
+    std::vector<int> num_stack;
+    num_stack.reserve(tokens.size());
     for(auto& tok: tokens)
     {
         if(tok.id == Tok_id::num)
-            op_stack.push_back(tok.data);
+            num_stack.push_back(tok.data);
         else
         {
-            if(op_stack.size() < 2)
+            if(num_stack.size() < 2)
                 return {};
 
-            auto top = op_stack.back();
-            op_stack.pop_back();
+            auto top = num_stack.back();
+            num_stack.pop_back();
             int val;
-            switch(tok.id)
             {
-            case Tok_id::add:
-                val = op_stack.back() + top;
-                break;
+                if(tok.id == Tok_id::add)
+                    val = num_stack.back() + top;
 
-            case Tok_id::sub:
-                val = op_stack.back() - top;
-                break;
+                else if(tok.id == Tok_id::sub)
+                    val = num_stack.back() - top;
 
-            case Tok_id::div:
-                if(top == 0)
+                else if(tok.id == Tok_id::div)
+                {
+                    if(top == 0)
+                        return {};
+                    val = num_stack.back() / top;
+                }
+                else if(tok.id == Tok_id::mp)
+                    val = num_stack.back() * top;
+
+                else
                     return {};
-                val = op_stack.back() / top;
-                break;
-
-            case Tok_id::mp:
-                val = op_stack.back() * top;
             }
-            op_stack.pop_back();
-            op_stack.push_back(val);
+            num_stack.pop_back();
+            num_stack.push_back(val);
         }
     }
-    if(op_stack.size() == 1)
-        return op_stack[0];
+    if(num_stack.size() == 1)
+        return num_stack.front();
     return {};
 }
 
@@ -255,3 +265,5 @@ Token get_token(char c)
     else
         return {Tok_id::err};
 }
+
+} // namespace calc

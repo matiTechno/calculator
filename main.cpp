@@ -1,7 +1,7 @@
-#include "calculator.hpp"
+#include "calc.hpp"
 
 int main()
 {
-    calc_start();
+    calc::start();
     return 0;
 }
